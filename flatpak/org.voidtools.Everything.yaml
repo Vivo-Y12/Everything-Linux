@@ -1,0 +1,65 @@
+# Flatpak manifest for Everything-1.0.0 — native Linux port of voidtools Everything
+# SPDX-License-Identifier: MIT
+#
+# Application ID : org.voidtools.Everything
+# Runtime        : org.gnome.Platform 47
+# SDK            : org.gnome.Sdk 47
+#
+# Build & install locally:
+#   flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+#   flatpak install --user flathub org.gnome.Sdk//47 org.gnome.Platform//47
+#   flatpak-builder --user --install --force-clean build-dir org.voidtools.Everything.yaml
+#
+# Validate the manifest:
+#   flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest org.voidtools.Everything.yaml
+#
+# For Flathub submission, see:
+#   https://docs.flathub.org/docs/for-app-authors/submission
+
+app-id: org.voidtools.Everything
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: everything
+
+# Permissions: read-only filesystem access so the crawler can index
+# host files; a writable per-app data directory for the SQLite index;
+# a writable per-app config directory for settings persistence. We do
+# not need network, devices, or system bus access.
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # Read-only view of the host filesystem so the indexer can crawl it.
+  # File operations on results (Open, Open Path) go through xdg-open
+  # via the host, so the app itself only needs read access.
+  - --filesystem=host:ro
+  # Writable per-app XDG dirs (Flatpak maps these to ~/.var/app/<id>/...).
+  - --filesystem=xdg-data/everything:create
+  - --filesystem=xdg-config/everything:create
+  # Talk to the file-chooser portal for "Export results as CSV…".
+  - --talk-name=org.freedesktop.portal.*
+  # Allow setting the window title/class correctly.
+  - --env=GDK_BACKEND=wayland,x11
+  # Inotify requires access to /proc (already in the sandbox); no
+  # extra permission needed.
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  # All sources live in the same git repository as this manifest when
+  # submitted to Flathub, so we use a single "everything" module that
+  # bundles all the project sources.
+  - name: everything
+    buildsystem: meson
+    sources:
+      - type: dir
+        path: .
+      # Generated config.h is produced by meson at build time; nothing
+      # else to copy.

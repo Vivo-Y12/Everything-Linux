@@ -1,0 +1,4 @@
+# LINGUAS file — list of locales the project is translated into.
+# English source strings live in the .ui / .desktop.in / .appdata.xml.in files.
+# Add locale codes (e.g. zh_CN, de, es, fr, ja) here as translations are added.
+en

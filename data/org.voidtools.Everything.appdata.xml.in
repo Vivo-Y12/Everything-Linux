@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<component type="desktop-application">
+  <id>org.voidtools.Everything</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Everything</name>
+  <summary>Locate files and folders by name instantly</summary>
+  <description>
+    <p>
+      Everything is a native Linux port of the popular voidtools Everything
+      file-search utility. It indexes the filesystem in seconds using a
+      multi-threaded crawler and SQLite FTS5, then provides instant
+      substring search by file name, path, extension, size, and date.
+    </p>
+    <p>
+      Unlike the original Windows application — which reads the NTFS
+      Master File Table directly — this Linux port crawls the directory
+      tree once and uses inotify to keep the index fresh in real time.
+      A reasonable subset of Everything's query syntax is supported,
+      including <code>ext:txt</code>, <code>size:&gt;1mb</code>,
+      <code>dm:lastweek</code>, <code>path:foo</code>, <code>folder:</code>,
+      <code>file:</code>, <code>empty:</code>, <code>!negation</code>,
+      <code>a|b</code> (OR), <code>"phrase"</code>, and <code>*.txt</code>
+      wildcards.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Instant substring search across the whole filesystem</li>
+      <li>Sortable results view (Name, Path, Size, Type, Modified, Attributes)</li>
+      <li>Real-time incremental updates via inotify</li>
+      <li>Context menu: Open, Open Path, Copy Path, Copy Name, Copy Full Name</li>
+      <li>Export results to CSV</li>
+      <li>Configurable index roots and skip directories</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">org.voidtools.Everything.desktop</launchable>
+
+  <url type="homepage">https://github.com/morluto/rea</url>
+  <url type="bugtracker">https://github.com/morluto/rea/issues</url>
+  <url type="vcs-browser">https://github.com/morluto/rea</url>
+
+  <provides>
+    <binary>everything</binary>
+  </provides>
+
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </recommends>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-11-06">
+      <description>
+        <p>Initial native Linux port.</p>
+        <ul>
+          <li>Multi-threaded filesystem crawler</li>
+          <li>SQLite FTS5 index with on-disk persistence</li>
+          <li>inotify-based incremental updates</li>
+          <li>GTK4 + libadwaita UI</li>
+          <li>Everything-compatible query syntax subset</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
+  <developer id="org.voidtools">
+    <name>voidtools (original) / Everything-1.0.0 Linux port contributors</name>
+  </developer>
+
+  <update_contact>everything-port@example.invalid</update_contact>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#3584e4</color>
+    <color type="primary" scheme_preference="dark">#62a0ea</color>
+  </branding>
+</component>

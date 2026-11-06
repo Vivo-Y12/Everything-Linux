@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Symbolic variant of the Everything icon, follows GNOME symbolic style:
+     single-color (current-color) outline. -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="16" height="16" viewBox="0 0 16 16" version="1.1">
+  <path fill="currentColor" d="
+    M 6.5 1.5
+    C 3.74 1.5 1.5 3.74 1.5 6.5
+    C 1.5 9.26 3.74 11.5 6.5 11.5
+    C 7.59 11.5 8.6 11.16 9.42 10.57
+    L 12.42 13.57
+    C 12.8 13.95 13.4 13.95 13.78 13.57
+    C 14.16 13.19 14.16 12.59 13.78 12.21
+    L 10.78 9.21
+    C 11.36 8.4 11.5 7.59 11.5 6.5
+    C 11.5 3.74 9.26 1.5 6.5 1.5 Z
+    M 6.5 3.5
+    C 8.16 3.5 9.5 4.84 9.5 6.5
+    C 9.5 8.16 8.16 9.5 6.5 9.5
+    C 4.84 9.5 3.5 8.16 3.5 6.5
+    C 3.5 4.84 4.84 3.5 6.5 3.5 Z"/>
+</svg>

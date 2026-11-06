@@ -1,0 +1,54 @@
+# Flathub submission manifest for org.voidtools.Everything
+# SPDX-License-Identifier: MIT
+#
+# This is the YAML file that lives at the root of the Flathub/flathub
+# submission PR (see https://docs.flathub.org/docs/for-app-authors/submission).
+# It uses `type: git` to pull the upstream source from GitHub.
+#
+# Submitting to Flathub:
+#   1. Push the everything-app source tree to a GitHub repo (e.g.
+#      github.com/your-username/everything-linux-port).
+#   2. Fork flathub/flathub on GitHub (uncheck "copy master branch only").
+#   3. Clone the fork: git clone --branch=new-pr git@github.com:you/flathub.git
+#   4. Copy this file into the clone as org.voidtools.Everything.yaml.
+#   5. Update the source URL + commit below to point at your tagged release.
+#   6. git checkout -b everything-submission new-pr
+#   7. git add org.voidtools.Everything.yaml && git commit && git push
+#   8. Open a PR against flathub/flathub base branch "new-pr".
+#   9. Comment "bot, build" to trigger a test build.
+
+app-id: org.voidtools.Everything
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: everything
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=host:ro
+  - --filesystem=xdg-data/everything:create
+  - --filesystem=xdg-config/everything:create
+  - --talk-name=org.freedesktop.portal.*
+  - --env=GDK_BACKEND=wayland,x11
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  - name: everything
+    buildsystem: meson
+    sources:
+      - type: git
+        # TODO: replace with the real upstream repository URL when the
+        # source has been published.
+        url: https://github.com/your-username/everything-linux-port.git
+        tag: 'v1.0.0'
+        commit: 0000000000000000000000000000000000000000
+      # Patches, if any, would go here.

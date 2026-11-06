@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Everything-1.0.0 GSettings schema.
+  These settings are persisted across runs and editable via the
+  config file at $XDG_CONFIG_HOME/everything/Everything.ini.
+-->
+<schemalist>
+  <schema id="org.voidtools.Everything" path="/org/voidtools/Everything/">
+    <key name="index-roots" type="s">
+      <default>'/,/home'</default>
+      <summary>Comma-separated list of roots to index</summary>
+      <description>
+        Directories to walk when building the file index. Use absolute
+        paths. Virtual filesystems (/proc, /sys, /dev, /run) are always
+        skipped regardless of this setting.
+      </description>
+    </key>
+    <key name="skip-dirs" type="s">
+      <default>'/proc,/sys,/dev,/run,/snap,/var/lib/flatpak,/var/lib/snapd'</default>
+      <summary>Comma-separated list of directories to skip</summary>
+      <description>
+        Directory paths that should never be crawled even if they
+        appear under an indexed root.
+      </description>
+    </key>
+    <key name="worker-threads" type="i">
+      <default>0</default>
+      <summary>Number of crawler worker threads (0 = auto)</summary>
+    </key>
+    <key name="index-hidden" type="b">
+      <default>true</default>
+      <summary>Index dotfiles and dot-directories</summary>
+    </key>
+    <key name="index-atime" type="b">
+      <default>false</default>
+      <summary>Record file access time (atime) in the index</summary>
+    </key>
+    <key name="follow-symlinks" type="b">
+      <default>false</default>
+      <summary>Follow symbolic links when crawling (may cause cycles)</summary>
+    </key>
+    <key name="case-sensitive" type="b">
+      <default>false</default>
+      <summary>Case-sensitive search</summary>
+    </key>
+    <key name="match-whole-word" type="b">
+      <default>false</default>
+      <summary>Match whole words only</summary>
+    </key>
+    <key name="match-path" type="b">
+      <default>false</default>
+      <summary>Match search terms against the full path, not just the filename</summary>
+    </key>
+    <key name="enable-regex" type="b">
+      <default>false</default>
+      <summary>Interpret the search query as a regular expression</summary>
+    </key>
+    <key name="max-results" type="i">
+      <default>100000</default>
+      <summary>Maximum number of results to return per search</summary>
+    </key>
+    <key name="db-path" type="s">
+      <default>''</default>
+      <summary>Override SQLite index path (empty = default XDG location)</summary>
+    </key>
+    <key name="window-width" type="i">
+      <default>900</default>
+      <summary>Last window width</summary>
+    </key>
+    <key name="window-height" type="i">
+      <default>600</default>
+      <summary>Last window height</summary>
+    </key>
+    <key name="sort-column" type="s">
+      <default>'name'</default>
+      <summary>Last sort column (name|path|size|type|mtime|ctime|atime|attrs|ext)</summary>
+    </key>
+    <key name="sort-direction" type="s">
+      <default>'asc'</default>
+      <summary>Last sort direction (asc|desc)</summary>
+    </key>
+  </schema>
+</schemalist>

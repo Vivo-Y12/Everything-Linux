@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Everything application icon — a magnifying glass over a file folder,
+     evoking instant file search. Drawn on a 256×256 canvas, scalable to
+     any size. Color is GNOME accent blue (#3584e4). -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="256"
+     height="256"
+     viewBox="0 0 256 256"
+     version="1.1">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+    <radialGradient id="glassGrad" cx="0.35" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.2"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded background tile -->
+  <rect x="16" y="16" width="224" height="224" rx="48" ry="48"
+        fill="url(#bgGrad)"/>
+
+  <!-- Folder silhouette in the background -->
+  <path d="M 56 168 L 56 104 Q 56 96 64 96 L 96 96 L 112 112 L 192 112
+           Q 200 112 200 120 L 200 168 Q 200 176 192 176 L 64 176
+           Q 56 176 56 168 Z"
+        fill="#ffffff" fill-opacity="0.18"/>
+
+  <!-- Magnifying glass -->
+  <g transform="translate(0,0)">
+    <!-- Handle -->
+    <line x1="168" y1="168" x2="208" y2="208"
+          stroke="#ffffff" stroke-width="20" stroke-linecap="round"/>
+    <!-- Glass ring -->
+    <circle cx="128" cy="128" r="56"
+            fill="none" stroke="#ffffff" stroke-width="20"/>
+    <!-- Glass highlight -->
+    <circle cx="128" cy="128" r="44" fill="url(#glassGrad)"/>
+  </g>
+</svg>

@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Everything
+GenericName=File Search
+Comment=Locate files and folders by name instantly
+Comment[zh_CN]=即时按名称查找文件与文件夹
+Comment[de]=Dateien und Ordner nach Namen sofort finden
+Comment[es]=Localiza archivos y carpetas por nombre al instante
+Comment[fr]=Trouvez instantanément fichiers et dossiers par leur nom
+Comment[ja]=名前でファイルやフォルダを瞬時に検索
+Exec=everything
+Icon=org.voidtools.Everything
+Terminal=false
+Categories=System;FileTools;Utility;GTK;
+Keywords=search;files;index;locate;find;instant;
+StartupNotify=true
+StartupWMClass=Everything
