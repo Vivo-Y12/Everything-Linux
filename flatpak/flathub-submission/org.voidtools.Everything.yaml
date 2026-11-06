@@ -48,7 +48,7 @@ modules:
       - type: git
         # TODO: replace with the real upstream repository URL when the
         # source has been published.
-        url: https://github.com/your-username/everything-linux-port.git
+        url: https://github.com/Vivo-Y12/Everything-Linux.git
         tag: 'v1.0.0'
-        commit: 0000000000000000000000000000000000000000
+        commit: 8ad4c8f1c682f831848a588ea1d86bdfa193e8a8
       # Patches, if any, would go here.
