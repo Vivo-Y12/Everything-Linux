@@ -5,7 +5,33 @@ A from-scratch, native Linux reimplementation of the popular
 built without Wine, Proton, or any Windows compatibility layer. Distributed
 as a Flatpak for installation via Flathub.
 
+## Quick install (download & run)
+
+Pre-built tarball + build instructions live on the GitHub Releases page:
+
+**https://github.com/Vivo-Y12/Everything-Linux/releases/latest**
+
+Download `Everything-1.0.0.tar.xz` from there, then on any Ubuntu 22.04+ /
+Debian 12+ / Fedora 38+ box:
+
+```bash
+sudo apt install meson ninja-build gcc pkg-config \
+    libgtk-4-dev libadwaita-1-dev libsqlite3-dev \
+    libglib2.0-dev gettext
+
+tar xf Everything-1.0.0.tar.xz
+cd everything-linux-port
+meson setup build --prefix=/usr/local
+ninja -C build
+sudo ninja -C build install
+everything
+```
+
+The standalone CLI (no GUI deps) builds with just `bash scripts/build_cli.sh`
+inside the source tree.
+
 ## What this is (and what it isn't)
+
 
 | Original voidtools Everything (Windows)            | Everything-1.0.0 (Linux)                         |
 | -------------------------------------------------- | ------------------------------------------------ |
