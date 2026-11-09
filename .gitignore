@@ -1,0 +1,41 @@
+# Build artifacts
+build/
+build-asan/
+.meson-build/
+.flatpak-builder/
+_build/
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.lo
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Translation
+*.gmo
+po/*.mo
+
+# Generated config
+config.h
+
+# Flatpak build output
+flatpak/build-dir/
+flatpak/repo/
+flatpak/.flatpak-builder/
+
+# Sandbox-only stuff (not part of the source tree)
+upload/
+work/
+tools/
+outputs/
+rea-project/
+skills/
+download/

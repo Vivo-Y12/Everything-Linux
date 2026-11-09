@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/org/voidtools/Everything">
+    <file preprocess="xml-stripblanks" alias="ui/everything-window.ui">ui/everything-window.ui</file>
+  </gresource>
+</gresources>

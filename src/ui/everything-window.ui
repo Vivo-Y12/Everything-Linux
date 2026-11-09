@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Everything-1.0.0 main window template.
+  Uses GTK4 + libadwaita. The GtkColumnView's model factory and
+  column setup is done in C (everything-window.c) — this file only
+  holds the static layout.
+-->
+<interface domain="everything">
+  <template class="EverythingWindow" parent="AdwApplicationWindow">
+    <property name="default-width">900</property>
+    <property name="default-height">600</property>
+    <property name="title" translatable="yes">Everything</property>
+    <child>
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="AdwHeaderBar" id="header_bar">
+            <property name="show-start-title-buttons">True</property>
+            <property name="show-end-title-buttons">True</property>
+            <child type="start">
+              <object class="GtkMenuButton" id="menu_btn">
+                <property name="icon-name">open-menu-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Menu</property>
+              </object>
+            </child>
+            <child type="title">
+              <object class="AdwClamp">
+                <property name="maximum-size">600</property>
+                <property name="tightening-threshold">400</property>
+                <child>
+                  <object class="GtkSearchEntry" id="search_entry">
+                    <property name="placeholder-text" translatable="yes">Search by name (use ext:txt, size:>1mb, dm:lastweek, !neg, a|b…)</property>
+                    <property name="hexpand">True</property>
+                    <signal name="changed" handler="on_search_changed" swapped="no"/>
+                    <signal name="activate" handler="on_search_activate" swapped="no"/>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkButton" id="rebuild_btn">
+                <property name="icon-name">view-refresh-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Rebuild index</property>
+                <signal name="clicked" handler="on_rebuild_clicked" swapped="no"/>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkScrolledWindow" id="scroller">
+            <property name="vexpand">True</property>
+            <property name="hscrollbar-policy">automatic</property>
+            <property name="vscrollbar-policy">automatic</property>
+            <child>
+              <object class="GtkColumnView" id="column_view">
+                <property name="show-row_separators">False</property>
+                <property name="show_column_separators">True</property>
+                <property name="single_click_activate">True</property>
+                <signal name="activate" handler="on_row_activated" swapped="no"/>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="status_bar">
+            <style>
+              <class name="toolbar"/>
+            </style>
+            <property name="orientation">horizontal</property>
+            <child>
+              <object class="GtkLabel" id="status_label">
+                <property name="halign">start</property>
+                <property name="margin-start">8</property>
+                <property name="margin-end">8</property>
+                <property name="margin-top">4</property>
+                <property name="margin-bottom">4</property>
+                <property name="label" translatable="yes">Ready</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="count_label">
+                <property name="halign">end</property>
+                <property name="hexpand">True</property>
+                <property name="margin-start">8</property>
+                <property name="margin-end">8</property>
+                <property name="margin-top">4</property>
+                <property name="margin-bottom">4</property>
+                <property name="label">0 items</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </template>
+</interface>
