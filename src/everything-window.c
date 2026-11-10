@@ -78,6 +78,153 @@ icon_name_for_row(const EverythingResultRow *r)
     return "text-x-generic-symbolic";
 }
 
+/* Forward declarations — the new action handlers below call these
+ * functions which are defined later in the file. */
+static void              schedule_search(EverythingWindow *win);
+static EverythingResultRow *selected_row(EverythingWindow *win);
+
+/* ------------- column sort comparison functions ------------- */
+
+static int
+cmp_name(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    return g_strcmp0(r1->name, r2->name);
+}
+static int
+cmp_path(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    return g_strcmp0(r1->path, r2->path);
+}
+static int
+cmp_size(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    if (r1->size < r2->size) return -1;
+    if (r1->size > r2->size) return 1;
+    return 0;
+}
+static int
+cmp_type(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    return g_strcmp0(r1->type_label, r2->type_label);
+}
+static int
+cmp_mtime(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    if (r1->mtime < r2->mtime) return -1;
+    if (r1->mtime > r2->mtime) return 1;
+    return 0;
+}
+static int
+cmp_attrs(gconstpointer a, gconstpointer b, gpointer u)
+{
+    (void)u;
+    EverythingResultRow *r1 = EVERYTHING_RESULT_ROW((gpointer)a);
+    EverythingResultRow *r2 = EVERYTHING_RESULT_ROW((gpointer)b);
+    return g_strcmp0(r1->attrs, r2->attrs);
+}
+
+/* Helper: create a GtkCustomSorter from a GCompareDataFunc */
+static GtkSorter *
+make_sorter(GCompareDataFunc cmp)
+{
+    return GTK_SORTER(gtk_custom_sorter_new(cmp, NULL, NULL));
+}
+
+/* ------------- new actions: quit, reload, fullscreen, about, properties ------------- */
+
+static void
+action_quit(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    gtk_window_destroy(GTK_WINDOW(win));
+}
+
+static void
+action_reload(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    schedule_search(win);
+}
+
+static void
+action_fullscreen(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    if (gtk_window_is_fullscreen(GTK_WINDOW(win)))
+        gtk_window_unfullscreen(GTK_WINDOW(win));
+    else
+        gtk_window_fullscreen(GTK_WINDOW(win));
+}
+
+static void
+action_about(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    AdwAboutWindow *about = ADW_ABOUT_WINDOW(adw_about_window_new());
+    adw_about_window_set_application_name(about, "Everything");
+    adw_about_window_set_version(about, "1.0.0");
+    adw_about_window_set_developer_name(about, "Vivo-Y12");
+    adw_about_window_set_license_type(about, GTK_LICENSE_MIT_X11);
+    adw_about_window_set_website(about, "https://github.com/Vivo-Y12/Everything-Linux");
+    adw_about_window_set_issue_url(about, "https://github.com/Vivo-Y12/Everything-Linux/issues");
+    adw_about_window_set_comments(about,
+        "Instant file search for Linux. Multi-threaded crawler with "
+        "SQLite FTS5 index and inotify live updates.");
+    gtk_window_present(GTK_WINDOW(about));
+}
+
+static void
+action_properties(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    EverythingResultRow *r = selected_row(win);
+    if (!r) return;
+    char *size_str = format_size(r->size);
+    char *mtime_str = format_time(r->mtime);
+    char *ctime_str = format_time(r->ctime);
+    char *msg = g_strdup_printf(
+        "Name: %s\n"
+        "Path: %s\n"
+        "Full path: %s\n"
+        "Size: %s (%llu bytes)\n"
+        "Type: %s\n"
+        "Extension: %s\n"
+        "Attributes: %s\n"
+        "Modified: %s\n"
+        "Created: %s",
+        r->name, r->path, r->fullpath,
+        size_str, (unsigned long long)r->size,
+        r->type_label, r->ext, r->attrs,
+        mtime_str, ctime_str);
+    GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win),
+        GTK_DIALOG_DESTROY_WITH_PARENT, GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE,
+        "%s", "File Properties");
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s", msg);
+    g_signal_connect(dlg, "response", G_CALLBACK(gtk_window_destroy), NULL);
+    gtk_window_present(GTK_WINDOW(dlg));
+    g_free(size_str); g_free(mtime_str); g_free(ctime_str); g_free(msg);
+}
+
 /* ------------- column factory setup/bind helpers ------------- */
 
 /* "setup" callback for the Name column: builds an icon + label box.
@@ -562,32 +709,38 @@ everything_window_init(EverythingWindow *win)
      * is registered as a GObject for exactly this purpose. */
     win->results = g_list_store_new(EVERYTHING_TYPE_RESULT_ROW);
 
-    win->selection = gtk_single_selection_new(G_LIST_MODEL(win->results));
+    /* Wrap the GListStore in a GtkSortListModel so that clicking column
+     * headers automatically re-sorts the results in-memory. Each column
+     * has a GtkCustomSorter set below that compares the appropriate field. */
+    GtkSortListModel *sort_model = gtk_sort_list_model_new(G_LIST_MODEL(win->results), NULL);
+    win->selection = gtk_single_selection_new(G_LIST_MODEL(sort_model));
     gtk_column_view_set_model(win->column_view, GTK_SELECTION_MODEL(win->selection));
 
     win->sort_col = SORT_BY_NAME;
     win->sort_dir = SORT_ASC;
 
-    /* Build columns. In GTK 4 the column header click → sort is handled
-     * by attaching a GtkSorter to each GtkColumnViewColumn; the column
-     * view itself coordinates the actual sorting via its sorter model.
-     * We don't wire that up here for the initial Flathub submission;
-     * sorting is done by re-running the SQL query with the right
-     * ORDER BY clause (see schedule_search → do_search_idle). Clicking
-     * a column header still cycles the sort via the per-column sorter
-     * set below — the SQL re-run picks up the new sort_col/sort_dir. */
+    /* Build columns with sorters. In GTK 4, setting a GtkSorter on a
+     * GtkColumnViewColumn makes the header clickable — clicking it
+     * toggles the sort direction and the GtkSortListModel re-sorts
+     * the results in-memory. */
     GtkColumnViewColumn *c;
     c = make_column("Name",        name_col_setup,  name_col_bind,  TRUE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_name));
     gtk_column_view_append_column(win->column_view, c);
     c = make_column("Path",        text_col_setup,  path_col_bind,  TRUE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_path));
     gtk_column_view_append_column(win->column_view, c);
     c = make_column("Size",        text_col_setup,  size_col_bind,  FALSE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_size));
     gtk_column_view_append_column(win->column_view, c);
     c = make_column("Type",        text_col_setup,  type_col_bind,  FALSE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_type));
     gtk_column_view_append_column(win->column_view, c);
     c = make_column("Modified",    text_col_setup,  mtime_col_bind, FALSE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_mtime));
     gtk_column_view_append_column(win->column_view, c);
     c = make_column("Attributes",  text_col_setup,  attrs_col_bind, FALSE);
+    gtk_column_view_column_set_sorter(c, make_sorter(cmp_attrs));
     gtk_column_view_append_column(win->column_view, c);
 
     /* Menu (GMenu) */
@@ -618,42 +771,63 @@ everything_window_init(EverythingWindow *win)
     act = g_simple_action_new("explore-path",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_explore_path),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("clear-search",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_clear_search),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("select-all",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_select_all),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("quit",          NULL); g_signal_connect(act, "activate", G_CALLBACK(action_quit),          win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("reload",        NULL); g_signal_connect(act, "activate", G_CALLBACK(action_reload),        win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("fullscreen",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_fullscreen),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("about",         NULL); g_signal_connect(act, "activate", G_CALLBACK(action_about),         win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("properties",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_properties),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     gtk_widget_insert_action_group(GTK_WIDGET(win), "win", G_ACTION_GROUP(grp));
 
-    /* Keyboard shortcuts (from the original Everything's .lng analysis):
-     *   Ctrl+R   — Rebuild index
-     *   Escape   — Clear search entry
-     *   Ctrl+A   — Select all results
-     *   Ctrl+C   — Copy full path of selected row
-     *   Ctrl+N   — New search window (not wired — single-window mode)
-     *   F1       — Help (not wired — no help content yet)
-     * Future: Ctrl+Q (case-sensitive), Ctrl+W (whole word), Ctrl+E (match path)
+    /* Keyboard shortcuts (aligned with the original Everything where
+     * possible):
+     *   Ctrl+Shift+R — Rebuild index (original uses Ctrl+R for Regex)
+     *   Escape       — Clear search entry
+     *   Ctrl+A       — Select all results
+     *   Ctrl+C       — Copy full path of selected row
+     *   Ctrl+Enter   — Open path of selected row
+     *   Alt+Enter    — Properties of selected row
+     *   F1           — About dialog
+     *   F5           — Reload search results
+     *   F11          — Toggle fullscreen
+     *   Ctrl+Q       — Quit
+     *   Ctrl+S       — Export results as CSV
      */
     GtkShortcutController *sc = GTK_SHORTCUT_CONTROLLER(
         gtk_shortcut_controller_new());
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(sc),
                                                 GTK_PHASE_CAPTURE);
     GtkShortcut *s;
-    /* Ctrl+R — rebuild index */
-    s = gtk_shortcut_new(
-        gtk_keyval_trigger_new(GDK_KEY_r, GDK_CONTROL_MASK),
-        gtk_named_action_new("win.rebuild"));
-    gtk_shortcut_controller_add_shortcut(sc, s);
+    #define ADD_SHORTCUT(key, mods, action) \
+        s = gtk_shortcut_new( \
+            gtk_keyval_trigger_new((key), (mods)), \
+            gtk_named_action_new("win." action)); \
+        gtk_shortcut_controller_add_shortcut(sc, s)
+
+    /* Ctrl+Shift+R — rebuild index (not Ctrl+R, which is reserved for
+     * regex toggle in the original Everything) */
+    ADD_SHORTCUT(GDK_KEY_r, GDK_CONTROL_MASK | GDK_SHIFT_MASK, "rebuild");
     /* Escape — clear search */
-    s = gtk_shortcut_new(
-        gtk_keyval_trigger_new(GDK_KEY_Escape, 0),
-        gtk_named_action_new("win.clear-search"));
-    gtk_shortcut_controller_add_shortcut(sc, s);
+    ADD_SHORTCUT(GDK_KEY_Escape, 0, "clear-search");
     /* Ctrl+A — select all results */
-    s = gtk_shortcut_new(
-        gtk_keyval_trigger_new(GDK_KEY_a, GDK_CONTROL_MASK),
-        gtk_named_action_new("win.select-all"));
-    gtk_shortcut_controller_add_shortcut(sc, s);
-    /* Ctrl+C — copy full path (when not typing in the search entry) */
-    s = gtk_shortcut_new(
-        gtk_keyval_trigger_new(GDK_KEY_c, GDK_CONTROL_MASK),
-        gtk_named_action_new("win.copy-full"));
-    gtk_shortcut_controller_add_shortcut(sc, s);
+    ADD_SHORTCUT(GDK_KEY_a, GDK_CONTROL_MASK, "select-all");
+    /* Ctrl+C — copy full path */
+    ADD_SHORTCUT(GDK_KEY_c, GDK_CONTROL_MASK, "copy-full");
+    /* Ctrl+Return — open path */
+    ADD_SHORTCUT(GDK_KEY_Return, GDK_CONTROL_MASK, "open-path");
+    /* Alt+Return — properties */
+    ADD_SHORTCUT(GDK_KEY_Return, GDK_ALT_MASK, "properties");
+    /* F1 — about dialog */
+    ADD_SHORTCUT(GDK_KEY_F1, 0, "about");
+    /* F5 — reload search */
+    ADD_SHORTCUT(GDK_KEY_F5, 0, "reload");
+    /* F11 — fullscreen toggle */
+    ADD_SHORTCUT(GDK_KEY_F11, 0, "fullscreen");
+    /* Ctrl+Q — quit */
+    ADD_SHORTCUT(GDK_KEY_q, GDK_CONTROL_MASK, "quit");
+    /* Ctrl+S — export results as CSV */
+    ADD_SHORTCUT(GDK_KEY_s, GDK_CONTROL_MASK, "export-csv");
+
+    #undef ADD_SHORTCUT
     gtk_widget_add_controller(GTK_WIDGET(win), GTK_EVENT_CONTROLLER(sc));
 }
 

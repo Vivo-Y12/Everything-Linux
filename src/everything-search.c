@@ -278,14 +278,58 @@ static void
 handle_operator(QueryBuilder *q, const char *op, const char *operand)
 {
     if (g_ascii_strcasecmp(op, "ext") == 0) {
-        if (*operand == '!')
-            g_ptr_array_add(q->ext_ne, g_ascii_strdown(operand + 1, -1));
-        else
-            g_ptr_array_add(q->ext_eq, g_ascii_strdown(operand, -1));
+        if (*operand == '!') {
+            /* Support multiple extensions separated by ; e.g. ext:!txt;log */
+            gchar **parts = g_strsplit(operand + 1, ";", -1);
+            for (guint i = 0; parts[i]; i++) {
+                char *t = g_strstrip(parts[i]);
+                if (*t) g_ptr_array_add(q->ext_ne, g_ascii_strdown(t, -1));
+            }
+            g_strfreev(parts);
+        } else {
+            /* Support multiple extensions separated by ; e.g. ext:cpp;h;cs */
+            gchar **parts = g_strsplit(operand, ";", -1);
+            for (guint i = 0; parts[i]; i++) {
+                char *t = g_strstrip(parts[i]);
+                if (*t) g_ptr_array_add(q->ext_eq, g_ascii_strdown(t, -1));
+            }
+            g_strfreev(parts);
+        }
         return;
     }
     if (g_ascii_strcasecmp(op, "path") == 0) {
         g_ptr_array_add(q->path_terms, g_strdup(operand));
+        return;
+    }
+    if (g_ascii_strcasecmp(op, "parent") == 0) {
+        /* parent:/path/to/dir — find files directly in this folder.
+         * Matches f.path exactly (case-insensitive). */
+        g_string_append_printf(q->extra_where, " AND lower(f.path) = lower(?)");
+        g_ptr_array_add(q->params, g_strdup(operand));
+        return;
+    }
+    if (g_ascii_strcasecmp(op, "len") == 0) {
+        /* len:>20 or len:10 or len:5..15 — filename length filter */
+        const char *p = operand;
+        int op_type = 4;
+        if (*p == '>') { op_type = 2; p++; if (*p=='=') {op_type=3;p++;} }
+        else if (*p == '<') { op_type = 0; p++; if (*p=='=') {op_type=1;p++;} }
+        char *end;
+        long v = strtol(p, &end, 10);
+        if (end != p) {
+            /* Check for range: len:5..15 */
+            if (*end == '.' && end[1] == '.') {
+                long v2 = strtol(end + 2, &end, 10);
+                if (end != end + 2) {
+                    g_string_append_printf(q->extra_where,
+                        " AND length(f.name) BETWEEN %ld AND %ld", v, v2);
+                    return;
+                }
+            }
+            const char *sqlop = (op_type==0)?"<":(op_type==1)?"<=":(op_type==2)?">":(op_type==3)?">=":"=";
+            g_string_append_printf(q->extra_where, " AND length(f.name) %s %ld",
+                sqlop, v);
+        }
         return;
     }
     if (g_ascii_strcasecmp(op, "folder") == 0) {
@@ -303,7 +347,7 @@ handle_operator(QueryBuilder *q, const char *op, const char *operand)
         return;
     }
     if (g_ascii_strcasecmp(op, "size") == 0) {
-        /* operand like ">1mb" or ">=500kb" or "==100" */
+        /* operand like ">1mb" or ">=500kb" or "==100" or "10mb..50mb" */
         const char *p = operand;
         int op_type = -1; /* 0:< 1:<= 2:> 3:>= 4:== */
         if (*p == '<' && p[1] == '=') { op_type = 1; p += 2; }
@@ -315,6 +359,17 @@ handle_operator(QueryBuilder *q, const char *op, const char *operand)
         else { op_type = 4; }
         uint64_t v = 0;
         if (parse_size(p, &v)) {
+            /* Check for range: size:10mb..50mb */
+            const char *dotdot = strstr(p, "..");
+            if (dotdot) {
+                uint64_t v2 = 0;
+                if (parse_size(dotdot + 2, &v2)) {
+                    g_string_append_printf(q->extra_where,
+                        " AND f.size BETWEEN %llu AND %llu",
+                        (unsigned long long)v, (unsigned long long)v2);
+                    return;
+                }
+            }
             q->has_size_filter = TRUE;
             q->size_op = op_type;
             q->size_value = v;
@@ -323,7 +378,7 @@ handle_operator(QueryBuilder *q, const char *op, const char *operand)
     }
     if (g_ascii_strcasecmp(op, "dm") == 0 || g_ascii_strcasecmp(op, "dc") == 0
         || g_ascii_strcasecmp(op, "da") == 0) {
-        /* operand like "lastweek" or ">=2024-01-01" */
+        /* operand like "lastweek" or ">=2024-01-01" or "2025-07-01..2026-06-30" */
         const char *p = operand;
         const char *col = (g_ascii_strcasecmp(op, "dc") == 0) ? "ctime" :
                           (g_ascii_strcasecmp(op, "da") == 0) ? "atime" : "mtime";
@@ -336,6 +391,17 @@ handle_operator(QueryBuilder *q, const char *op, const char *operand)
         else if (*p == '=') { op_type = 4; p += 1; }
         time_t t = 0;
         if (parse_relative_date(p, &t)) {
+            /* Check for range: dm:2025-07-01..2026-06-30 */
+            const char *dotdot = strstr(p, "..");
+            if (dotdot) {
+                time_t t2 = 0;
+                if (parse_relative_date(dotdot + 2, &t2)) {
+                    g_string_append_printf(q->extra_where,
+                        " AND f.%s BETWEEN %lld AND %lld",
+                        col, (long long)t, (long long)t2);
+                    return;
+                }
+            }
             const char *sqlop = (op_type==0)?"<":(op_type==1)?"<=":(op_type==2)?">":(op_type==3)?">=":"==";
             g_string_append_printf(q->extra_where, " AND f.%s %s %lld",
                 col, sqlop, (long long)t);
@@ -498,11 +564,22 @@ search_compile(EverythingIndex *idx, const SearchRequest *req, GError **error)
         g_string_append_printf(sql, " AND f.path LIKE ?");
         g_ptr_array_add(q->params, g_strdup_printf("%%%s%%", s));
     }
-    /* Extensions: equality, case-insensitive (we already downcased). */
-    for (guint i = 0; i < q->ext_eq->len; i++) {
-        const char *s = (const char *)g_ptr_array_index(q->ext_eq, i);
-        g_string_append_printf(sql, " AND lower(f.ext) = ?");
-        g_ptr_array_add(q->params, g_strdup(s));
+    /* Extensions: equality, case-insensitive. Multiple extensions are
+     * OR'd: ext:c;h → (lower(f.ext) = 'c' OR lower(f.ext) = 'h'). */
+    if (q->ext_eq->len > 0) {
+        if (q->ext_eq->len == 1) {
+            g_string_append_printf(sql, " AND lower(f.ext) = ?");
+            g_ptr_array_add(q->params, g_strdup(g_ptr_array_index(q->ext_eq, 0)));
+        } else {
+            g_string_append(sql, " AND (");
+            for (guint i = 0; i < q->ext_eq->len; i++) {
+                const char *s = (const char *)g_ptr_array_index(q->ext_eq, i);
+                if (i > 0) g_string_append(sql, " OR ");
+                g_string_append(sql, "lower(f.ext) = ?");
+                g_ptr_array_add(q->params, g_strdup(s));
+            }
+            g_string_append_c(sql, ')');
+        }
     }
     for (guint i = 0; i < q->ext_ne->len; i++) {
         const char *s = (const char *)g_ptr_array_index(q->ext_ne, i);
