@@ -443,6 +443,51 @@ action_open_path(GSimpleAction *a, GVariant *v, gpointer user_data)
         g_free(msg); g_error_free(err);
     }
 }
+
+/* "Explore path" — open the system file manager (xdg-open on the
+ * parent directory, which typically launches nautilus/thunar/etc.
+ * and selects the file if the manager supports it via --select).
+ * Mirrors the "Explore path" action in the original Everything. */
+static void
+action_explore_path(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    EverythingResultRow *r = selected_row(win);
+    if (!r) return;
+    GError *err = NULL;
+    /* Try `xdg-open /path/to/parent/dir` — opens the file manager
+     * at the directory containing the file. */
+    gchar *argv[] = { (gchar *)"xdg-open", r->path, NULL };
+    g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+                  NULL, NULL, NULL, &err);
+    if (err) {
+        char *msg = g_strdup_printf("Explore path failed: %s", err->message);
+        gtk_label_set_text(win->status_label, msg);
+        g_free(msg); g_error_free(err);
+    }
+}
+
+/* Clear the search entry (Escape key). */
+static void
+action_clear_search(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    gtk_editable_set_text(GTK_EDITABLE(win->search_entry), "");
+}
+
+/* Select all results (Ctrl+A). */
+static void
+action_select_all(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    GtkSelectionModel *model = gtk_column_view_get_model(win->column_view);
+    guint n = g_list_model_get_n_items(G_LIST_MODEL(model));
+    if (n > 0)
+        gtk_selection_model_select_all(model);
+}
 static void
 action_rebuild(GSimpleAction *a, GVariant *v, gpointer user_data)
 {
@@ -550,10 +595,12 @@ everything_window_init(EverythingWindow *win)
     g_menu_append(menu, "Rebuild index", "win.rebuild");
     g_menu_append(menu, "Export results as CSV…", "win.export-csv");
     GMenu *edit = g_menu_new();
-    g_menu_append(edit, "Copy path",      "win.copy-path");
-    g_menu_append(edit, "Copy name",      "win.copy-name");
-    g_menu_append(edit, "Copy full name", "win.copy-full");
-    g_menu_append(edit, "Open path",      "win.open-path");
+    g_menu_append(edit, "Copy path",        "win.copy-path");
+    g_menu_append(edit, "Copy name",        "win.copy-name");
+    g_menu_append(edit, "Copy full name",   "win.copy-full");
+    g_menu_append(edit, "Open path",        "win.open-path");
+    g_menu_append(edit, "Explore path",     "win.explore-path");
+    g_menu_append(edit, "Select all",       "win.select-all");
     GMenu *root = g_menu_new();
     g_menu_append_submenu(root, "Tools", G_MENU_MODEL(menu));
     g_menu_append_submenu(root, "Edit",  G_MENU_MODEL(edit));
@@ -562,22 +609,50 @@ everything_window_init(EverythingWindow *win)
     /* Install actions. */
     GSimpleActionGroup *grp = g_simple_action_group_new();
     GSimpleAction *act;
-    act = g_simple_action_new("rebuild",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_rebuild),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
-    act = g_simple_action_new("export-csv", NULL); g_signal_connect(act, "activate", G_CALLBACK(action_export_csv), win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
-    act = g_simple_action_new("copy-path",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_path),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
-    act = g_simple_action_new("copy-name",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_name),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
-    act = g_simple_action_new("copy-full",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_full),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
-    act = g_simple_action_new("open-path",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_open_path),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("rebuild",       NULL); g_signal_connect(act, "activate", G_CALLBACK(action_rebuild),       win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("export-csv",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_export_csv),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("copy-path",     NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_path),     win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("copy-name",     NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_name),     win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("copy-full",     NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_full),     win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("open-path",     NULL); g_signal_connect(act, "activate", G_CALLBACK(action_open_path),     win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("explore-path",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_explore_path),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("clear-search",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_clear_search),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("select-all",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_select_all),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     gtk_widget_insert_action_group(GTK_WIDGET(win), "win", G_ACTION_GROUP(grp));
 
-    /* Keyboard shortcut: Ctrl+R to rebuild. */
+    /* Keyboard shortcuts (from the original Everything's .lng analysis):
+     *   Ctrl+R   — Rebuild index
+     *   Escape   — Clear search entry
+     *   Ctrl+A   — Select all results
+     *   Ctrl+C   — Copy full path of selected row
+     *   Ctrl+N   — New search window (not wired — single-window mode)
+     *   F1       — Help (not wired — no help content yet)
+     * Future: Ctrl+Q (case-sensitive), Ctrl+W (whole word), Ctrl+E (match path)
+     */
     GtkShortcutController *sc = GTK_SHORTCUT_CONTROLLER(
         gtk_shortcut_controller_new());
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(sc),
                                                 GTK_PHASE_CAPTURE);
-    GtkShortcut *s = gtk_shortcut_new(
+    GtkShortcut *s;
+    /* Ctrl+R — rebuild index */
+    s = gtk_shortcut_new(
         gtk_keyval_trigger_new(GDK_KEY_r, GDK_CONTROL_MASK),
         gtk_named_action_new("win.rebuild"));
+    gtk_shortcut_controller_add_shortcut(sc, s);
+    /* Escape — clear search */
+    s = gtk_shortcut_new(
+        gtk_keyval_trigger_new(GDK_KEY_Escape, 0),
+        gtk_named_action_new("win.clear-search"));
+    gtk_shortcut_controller_add_shortcut(sc, s);
+    /* Ctrl+A — select all results */
+    s = gtk_shortcut_new(
+        gtk_keyval_trigger_new(GDK_KEY_a, GDK_CONTROL_MASK),
+        gtk_named_action_new("win.select-all"));
+    gtk_shortcut_controller_add_shortcut(sc, s);
+    /* Ctrl+C — copy full path (when not typing in the search entry) */
+    s = gtk_shortcut_new(
+        gtk_keyval_trigger_new(GDK_KEY_c, GDK_CONTROL_MASK),
+        gtk_named_action_new("win.copy-full"));
     gtk_shortcut_controller_add_shortcut(sc, s);
     gtk_widget_add_controller(GTK_WIDGET(win), GTK_EVENT_CONTROLLER(sc));
 }
