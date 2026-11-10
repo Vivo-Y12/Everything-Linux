@@ -41,6 +41,14 @@ struct _EverythingWindow {
     SortColumn       sort_col;
     SortDirection    sort_dir;
 
+    /* Search option toggles (match the original Everything's Search menu) */
+    gboolean         match_case;
+    gboolean         match_whole_word;
+    gboolean         match_path;
+
+    /* Search history — last N queries (GQueue of gchar*, newest first) */
+    GQueue          *search_history;
+
     /* Debounce timer for live-as-you-type search */
     guint            search_debounce_id;
 };
@@ -78,10 +86,281 @@ icon_name_for_row(const EverythingResultRow *r)
     return "text-x-generic-symbolic";
 }
 
-/* Forward declarations — the new action handlers below call these
- * functions which are defined later in the file. */
+/* Forward declarations */
 static void              schedule_search(EverythingWindow *win);
 static EverythingResultRow *selected_row(EverythingWindow *win);
+static void              rebuild_search_menu(EverythingWindow *win);
+
+/* ------------- search option toggles ------------- */
+
+static void
+toggle_match_case(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    win->match_case = !win->match_case;
+    g_simple_action_set_state(a, g_variant_new_boolean(win->match_case));
+    schedule_search(win);
+}
+
+static void
+toggle_match_whole_word(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    win->match_whole_word = !win->match_whole_word;
+    g_simple_action_set_state(a, g_variant_new_boolean(win->match_whole_word));
+    schedule_search(win);
+}
+
+static void
+toggle_match_path(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    win->match_path = !win->match_path;
+    g_simple_action_set_state(a, g_variant_new_boolean(win->match_path));
+    schedule_search(win);
+}
+
+/* ------------- search history ------------- */
+
+#define MAX_HISTORY 20
+
+static void
+add_to_history(EverythingWindow *win, const char *query)
+{
+    if (!query || !*query) return;
+    /* Don't add if same as most recent */
+    if (!g_queue_is_empty(win->search_history) &&
+        g_strcmp0(g_queue_peek_head(win->search_history), query) == 0)
+        return;
+    g_queue_push_head(win->search_history, g_strdup(query));
+    while (g_queue_get_length(win->search_history) > MAX_HISTORY)
+        g_free(g_queue_pop_tail(win->search_history));
+    rebuild_search_menu(win);
+}
+
+static void
+on_history_item(GAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    const char *query = g_variant_get_string(param, NULL);
+    gtk_editable_set_text(GTK_EDITABLE(win->search_entry), query);
+}
+
+/* ------------- bookmarks ------------- */
+
+static char *
+bookmarks_path(void)
+{
+    return g_build_filename(g_get_user_config_dir(),
+                            "everything", "bookmarks.txt", NULL);
+}
+
+static GPtrArray *
+load_bookmarks(void)
+{
+    GPtrArray *bm = g_ptr_array_new_with_free_func(g_free);
+    char *path = bookmarks_path();
+    gchar *contents = NULL;
+    if (g_file_get_contents(path, &contents, NULL, NULL)) {
+        gchar **lines = g_strsplit(contents, "\n", -1);
+        for (guint i = 0; lines[i]; i++) {
+            char *line = g_strstrip(lines[i]);
+            if (*line) g_ptr_array_add(bm, g_strdup(line));
+        }
+        g_strfreev(lines);
+        g_free(contents);
+    }
+    g_free(path);
+    return bm;
+}
+
+static void
+save_bookmarks(GPtrArray *bm)
+{
+    char *path = bookmarks_path();
+    g_mkdir_with_parents(g_path_get_dirname(path), 0700);
+    GString *s = g_string_new(NULL);
+    for (guint i = 0; i < bm->len; i++)
+        g_string_append_printf(s, "%s\n", (char *)g_ptr_array_index(bm, i));
+    g_file_set_contents(path, s->str, s->len, NULL);
+    g_string_free(s, TRUE);
+    g_free(path);
+}
+
+static void
+action_add_bookmark(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    const char *query = gtk_editable_get_text(GTK_EDITABLE(win->search_entry));
+    if (!query || !*query) return;
+    GPtrArray *bm = load_bookmarks();
+    /* Format: query (name = query for simplicity) */
+    g_ptr_array_add(bm, g_strdup(query));
+    save_bookmarks(bm);
+    g_ptr_array_free(bm, TRUE);
+    rebuild_search_menu(win);
+}
+
+static void
+on_bookmark_item(GAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    const char *query = g_variant_get_string(param, NULL);
+    gtk_editable_set_text(GTK_EDITABLE(win->search_entry), query);
+}
+
+/* ------------- filters ------------- */
+
+static const struct { const char *label; const char *query; } filter_presets[] = {
+    {"Audio",      "ext:mp3;wav;flac;ogg;aac;m4a;wma"},
+    {"Video",      "ext:mp4;avi;mkv;mov;webm;flv;wmv"},
+    {"Image",      "ext:jpg;jpeg;png;gif;bmp;svg;webp;tiff"},
+    {"Document",   "ext:pdf;doc;docx;txt;md;odt;rtf;xls;xlsx;ppt;pptx"},
+    {"Executable", "ext:exe;msi;deb;rpm;appimage;sh;bin"},
+    {"Compressed", "ext:zip;tar;gz;rar;7z;bz2;xz"},
+    {"Folder",     "folder:"},
+    {"Empty",      "empty:"},
+    {NULL, NULL}
+};
+
+static void
+on_filter_item(GAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    const char *query = g_variant_get_string(param, NULL);
+    gtk_editable_set_text(GTK_EDITABLE(win->search_entry), query);
+}
+
+/* ------------- rename (F2) ------------- */
+
+static void
+action_rename(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    EverythingResultRow *r = selected_row(win);
+    if (!r) return;
+    /* Simple rename: use a GtkEditDialog-like approach. For GTK4 we
+     * use GtkAlertDialog (4.10+) or a simple inline approach. Here
+     * we just do a basic rename via Gio without a dialog for simplicity. */
+    GFile *file = g_file_new_for_path(r->fullpath);
+    GError *err = NULL;
+    /* For a proper implementation, show a dialog with an entry.
+     * For now, this is a placeholder that shows the action is wired. */
+    char *msg = g_strdup_printf("Rename: select a file and press F2. "
+        "Full rename dialog will be added in a future version. "
+        "Current name: %s", r->name);
+    gtk_label_set_text(win->status_label, msg);
+    g_free(msg);
+    g_object_unref(file);
+    (void)err;
+}
+
+/* ------------- delete to trash (Delete key) ------------- */
+
+static void
+action_delete(GSimpleAction *a, GVariant *v, gpointer user_data)
+{
+    (void)a; (void)v;
+    EverythingWindow *win = EVERYTHING_WINDOW(user_data);
+    EverythingResultRow *r = selected_row(win);
+    if (!r) return;
+    GFile *file = g_file_new_for_path(r->fullpath);
+    GError *err = NULL;
+    if (g_file_trash(file, NULL, &err)) {
+        char *msg = g_strdup_printf("Moved to trash: %s", r->name);
+        gtk_label_set_text(win->status_label, msg);
+        g_free(msg);
+        schedule_search(win);
+    } else {
+        char *msg = g_strdup_printf("Delete failed: %s", err->message);
+        gtk_label_set_text(win->status_label, msg);
+        g_free(msg);
+        g_error_free(err);
+    }
+    g_object_unref(file);
+}
+
+/* ------------- menu builder (dynamic: history + bookmarks + filters) ------------- */
+
+static void
+rebuild_search_menu(EverythingWindow *win)
+{
+    GMenu *root = g_menu_new();
+
+    /* Tools submenu */
+    GMenu *tools = g_menu_new();
+    g_menu_append(tools, "Rebuild index",           "win.rebuild");
+    g_menu_append(tools, "Export results as CSV…",  "win.export-csv");
+    g_menu_append_submenu(root, "Tools", G_MENU_MODEL(tools));
+
+    /* Edit submenu */
+    GMenu *edit = g_menu_new();
+    g_menu_append(edit, "Copy path",        "win.copy-path");
+    g_menu_append(edit, "Copy name",        "win.copy-name");
+    g_menu_append(edit, "Copy full name",   "win.copy-full");
+    g_menu_append(edit, "Open path",        "win.open-path");
+    g_menu_append(edit, "Explore path",     "win.explore-path");
+    g_menu_append(edit, "Select all",       "win.select-all");
+    g_menu_append(edit, "Rename",           "win.rename");
+    g_menu_append(edit, "Delete (trash)",   "win.delete");
+    g_menu_append_submenu(root, "Edit", G_MENU_MODEL(edit));
+
+    /* Search submenu (toggles + history + filters) */
+    GMenu *search_menu = g_menu_new();
+    g_menu_append(search_menu, "Match Case",        "win.match-case");
+    g_menu_append(search_menu, "Match Whole Word",  "win.match-whole-word");
+    g_menu_append(search_menu, "Match Path",        "win.match-path");
+
+    /* Search History submenu */
+    if (win->search_history && !g_queue_is_empty(win->search_history)) {
+        GMenu *hist = g_menu_new();
+        GList *l = g_queue_peek_head_link(win->search_history);
+        for (guint i = 0; l && i < MAX_HISTORY; l = l->next, i++) {
+            const char *q = (const char *)l->data;
+            /* Truncate long queries for menu display */
+            char *label = strlen(q) > 40 ? g_strdup_printf("%.40s…", q) : g_strdup(q);
+            g_menu_append(hist, label, g_strdup_printf("win.history::%s", q));
+            g_free(label);
+        }
+        g_menu_append_submenu(search_menu, "Search History", G_MENU_MODEL(hist));
+    }
+
+    /* Filters submenu */
+    GMenu *filters = g_menu_new();
+    for (guint i = 0; filter_presets[i].label; i++) {
+        g_menu_append(filters, filter_presets[i].label,
+            g_strdup_printf("win.filter::%s", filter_presets[i].query));
+    }
+    g_menu_append_submenu(search_menu, "Filters", G_MENU_MODEL(filters));
+
+    g_menu_append_submenu(root, "Search", G_MENU_MODEL(search_menu));
+
+    /* Bookmarks submenu */
+    GMenu *bm_menu = g_menu_new();
+    g_menu_append(bm_menu, "Add bookmark…", "win.add-bookmark");
+    GPtrArray *bm = load_bookmarks();
+    if (bm->len > 0) {
+        g_menu_append_section(bm_menu, NULL, NULL);  /* separator */
+        for (guint i = 0; i < bm->len; i++) {
+            const char *q = (const char *)g_ptr_array_index(bm, i);
+            char *label = strlen(q) > 40 ? g_strdup_printf("%.40s…", q) : g_strdup(q);
+            g_menu_append(bm_menu, label, g_strdup_printf("win.bookmark::%s", q));
+            g_free(label);
+        }
+    }
+    g_ptr_array_free(bm, TRUE);
+    g_menu_append_submenu(root, "Bookmarks", G_MENU_MODEL(bm_menu));
+
+    gtk_menu_button_set_menu_model(win->menu_btn, G_MENU_MODEL(root));
+}
 
 /* ------------- column sort comparison functions ------------- */
 
@@ -345,6 +624,13 @@ do_search_idle(gpointer data)
     req->sort_col = win->sort_col;
     req->sort_dir = win->sort_dir;
     req->limit    = 100000;
+    req->match_case = win->match_case;
+    req->match_whole_word = win->match_whole_word;
+    req->match_path = win->match_path;
+
+    /* Track search history (non-empty queries only) */
+    if (q && *q)
+        add_to_history(win, q);
 
     GError *err = NULL;
     guint64 total = 0;
@@ -718,11 +1004,12 @@ everything_window_init(EverythingWindow *win)
 
     win->sort_col = SORT_BY_NAME;
     win->sort_dir = SORT_ASC;
+    win->match_case = FALSE;
+    win->match_whole_word = FALSE;
+    win->match_path = FALSE;
+    win->search_history = g_queue_new();
 
-    /* Build columns with sorters. In GTK 4, setting a GtkSorter on a
-     * GtkColumnViewColumn makes the header clickable — clicking it
-     * toggles the sort direction and the GtkSortListModel re-sorts
-     * the results in-memory. */
+    /* Build columns with sorters. */
     GtkColumnViewColumn *c;
     c = make_column("Name",        name_col_setup,  name_col_bind,  TRUE);
     gtk_column_view_column_set_sorter(c, make_sorter(cmp_name));
@@ -743,25 +1030,14 @@ everything_window_init(EverythingWindow *win)
     gtk_column_view_column_set_sorter(c, make_sorter(cmp_attrs));
     gtk_column_view_append_column(win->column_view, c);
 
-    /* Menu (GMenu) */
-    GMenu *menu = g_menu_new();
-    g_menu_append(menu, "Rebuild index", "win.rebuild");
-    g_menu_append(menu, "Export results as CSV…", "win.export-csv");
-    GMenu *edit = g_menu_new();
-    g_menu_append(edit, "Copy path",        "win.copy-path");
-    g_menu_append(edit, "Copy name",        "win.copy-name");
-    g_menu_append(edit, "Copy full name",   "win.copy-full");
-    g_menu_append(edit, "Open path",        "win.open-path");
-    g_menu_append(edit, "Explore path",     "win.explore-path");
-    g_menu_append(edit, "Select all",       "win.select-all");
-    GMenu *root = g_menu_new();
-    g_menu_append_submenu(root, "Tools", G_MENU_MODEL(menu));
-    g_menu_append_submenu(root, "Edit",  G_MENU_MODEL(edit));
-    gtk_menu_button_set_menu_model(win->menu_btn, G_MENU_MODEL(root));
+    /* Build the dynamic menu (Tools, Edit, Search, Bookmarks) */
+    rebuild_search_menu(win);
 
     /* Install actions. */
     GSimpleActionGroup *grp = g_simple_action_group_new();
     GSimpleAction *act;
+
+    /* Core actions */
     act = g_simple_action_new("rebuild",       NULL); g_signal_connect(act, "activate", G_CALLBACK(action_rebuild),       win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("export-csv",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_export_csv),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("copy-path",     NULL); g_signal_connect(act, "activate", G_CALLBACK(action_copy_path),     win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
@@ -776,6 +1052,25 @@ everything_window_init(EverythingWindow *win)
     act = g_simple_action_new("fullscreen",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_fullscreen),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("about",         NULL); g_signal_connect(act, "activate", G_CALLBACK(action_about),         win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
     act = g_simple_action_new("properties",    NULL); g_signal_connect(act, "activate", G_CALLBACK(action_properties),    win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+
+    /* Search option toggles (stateful) */
+    act = g_simple_action_new_stateful("match-case",       NULL, g_variant_new_boolean(FALSE)); g_signal_connect(act, "activate", G_CALLBACK(toggle_match_case),       win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new_stateful("match-whole-word", NULL, g_variant_new_boolean(FALSE)); g_signal_connect(act, "activate", G_CALLBACK(toggle_match_whole_word), win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new_stateful("match-path",       NULL, g_variant_new_boolean(FALSE)); g_signal_connect(act, "activate", G_CALLBACK(toggle_match_path),       win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+
+    /* Bookmarks */
+    act = g_simple_action_new("add-bookmark", NULL); g_signal_connect(act, "activate", G_CALLBACK(action_add_bookmark), win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+
+    /* Rename + Delete */
+    act = g_simple_action_new("rename",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_rename),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+    act = g_simple_action_new("delete",  NULL); g_signal_connect(act, "activate", G_CALLBACK(action_delete),  win); g_action_map_add_action(G_ACTION_MAP(grp), G_ACTION(act));
+
+    /* Parameterized actions for history/bookmark/filter menu items */
+    GAction *param_act;
+    param_act = G_ACTION(g_simple_action_new("history",  G_VARIANT_TYPE_STRING)); g_signal_connect(param_act, "activate", G_CALLBACK(on_history_item),  win); g_action_map_add_action(G_ACTION_MAP(grp), param_act);
+    param_act = G_ACTION(g_simple_action_new("bookmark", G_VARIANT_TYPE_STRING)); g_signal_connect(param_act, "activate", G_CALLBACK(on_bookmark_item), win); g_action_map_add_action(G_ACTION_MAP(grp), param_act);
+    param_act = G_ACTION(g_simple_action_new("filter",   G_VARIANT_TYPE_STRING)); g_signal_connect(param_act, "activate", G_CALLBACK(on_filter_item),   win); g_action_map_add_action(G_ACTION_MAP(grp), param_act);
+
     gtk_widget_insert_action_group(GTK_WIDGET(win), "win", G_ACTION_GROUP(grp));
 
     /* Keyboard shortcuts (aligned with the original Everything where
@@ -826,6 +1121,18 @@ everything_window_init(EverythingWindow *win)
     ADD_SHORTCUT(GDK_KEY_q, GDK_CONTROL_MASK, "quit");
     /* Ctrl+S — export results as CSV */
     ADD_SHORTCUT(GDK_KEY_s, GDK_CONTROL_MASK, "export-csv");
+    /* Ctrl+I — toggle match case */
+    ADD_SHORTCUT(GDK_KEY_i, GDK_CONTROL_MASK, "match-case");
+    /* Ctrl+B — toggle match whole word */
+    ADD_SHORTCUT(GDK_KEY_b, GDK_CONTROL_MASK, "match-whole-word");
+    /* Ctrl+U — toggle match path */
+    ADD_SHORTCUT(GDK_KEY_u, GDK_CONTROL_MASK, "match-path");
+    /* Ctrl+D — add bookmark */
+    ADD_SHORTCUT(GDK_KEY_d, GDK_CONTROL_MASK, "add-bookmark");
+    /* F2 — rename */
+    ADD_SHORTCUT(GDK_KEY_F2, 0, "rename");
+    /* Delete — move to trash */
+    ADD_SHORTCUT(GDK_KEY_Delete, 0, "delete");
 
     #undef ADD_SHORTCUT
     gtk_widget_add_controller(GTK_WIDGET(win), GTK_EVENT_CONTROLLER(sc));
@@ -886,6 +1193,10 @@ everything_window_dispose(GObject *obj)
     /* GListStore owns its items (GObjects with their own finalize).
      * Clearing the store drops the refs and frees them. */
     g_clear_object(&win->results);
+    if (win->search_history) {
+        g_queue_free_full(win->search_history, g_free);
+        win->search_history = NULL;
+    }
     gtk_widget_dispose_template(GTK_WIDGET(win), EVERYTHING_TYPE_WINDOW);
     G_OBJECT_CLASS(everything_window_parent_class)->dispose(obj);
 }

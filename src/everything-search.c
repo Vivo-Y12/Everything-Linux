@@ -488,67 +488,92 @@ search_compile(EverythingIndex *idx, const SearchRequest *req, GError **error)
         "       f.ext, f.attrs, f.mtime, f.ctime, f.atime "
         "FROM files f ");
 
-    /* Build FTS MATCH clause if any positive terms or phrases exist.
+    /* Build the filename matching clause. Two strategies:
      *
-     * FTS5 MATCH syntax has special characters: " * ( ) : AND OR NOT.
-     * User input is interpolated into the MATCH string, so we must
-     * escape it to prevent injection / silent query breakage. We wrap
-     * every term in double-quotes (FTS5 phrase syntax) and escape
-     * embedded double-quotes by doubling them (" -> ""). The trailing
-     * * for prefix matching goes OUTSIDE the closing quote. */
+     * A) match_case = TRUE → GLOB (case-sensitive, no FTS5 needed)
+     * B) match_case = FALSE → FTS5 (case-insensitive, fast)
+     *    match_path controls column selection:
+     *      FALSE → name:term* (only name column)
+     *      TRUE  → term* (both name and path)
+     *    match_whole_word removes prefix * for exact token match.
+     */
     gboolean need_fts_join = FALSE;
-    GString *match_expr = g_string_new(NULL);
-    gboolean first = TRUE;
+    GString *match_expr = g_string_new(NULL);  /* stays NULL-len if GLOB */
 
-    /* Helper: append an escaped, quoted term to match_expr.
-     * If prefix is true, append * after the closing quote for
-     * FTS5 prefix matching. */
-    #define APPEND_TERM(str, prefix) do { \
-        g_string_append_c(match_expr, '"'); \
-        for (const char *_c = (str); *_c; _c++) { \
-            if (*_c == '"') g_string_append_c(match_expr, '"'); \
-            g_string_append_c(match_expr, *_c); \
-        } \
-        g_string_append_c(match_expr, '"'); \
-        if (prefix) g_string_append_c(match_expr, '*'); \
-    } while (0)
+    if (!req->match_case) {
+        /* Strategy B: FTS5 */
+        gboolean first = TRUE;
+        const char *col_prefix = req->match_path ? "" : "name:";
 
-    for (guint i = 0; i < q->phrases->len; i++) {
-        const char *p = (const char *)g_ptr_array_index(q->phrases, i);
-        if (!first) g_string_append(match_expr, " AND ");
-        first = FALSE;
-        APPEND_TERM(p, FALSE);
-        need_fts_join = TRUE;
-    }
-    for (guint i = 0; i < q->pos_terms->len; i++) {
-        const char *s = (const char *)g_ptr_array_index(q->pos_terms, i);
-        if (!first) g_string_append(match_expr, " AND ");
-        first = FALSE;
-        APPEND_TERM(s, TRUE);   /* prefix match: term* */
-        need_fts_join = TRUE;
-    }
-    if (q->or_terms->len > 0) {
-        if (!first) g_string_append(match_expr, " AND ");
-        first = FALSE;
-        g_string_append_c(match_expr, '(');
-        for (guint i = 0; i < q->or_terms->len; i++) {
-            const char *s = (const char *)g_ptr_array_index(q->or_terms, i);
-            if (i > 0) g_string_append(match_expr, " OR ");
-            APPEND_TERM(s, TRUE);
+        #define APPEND_TERM(str, prefix) do { \
+            g_string_append(match_expr, col_prefix); \
+            g_string_append_c(match_expr, '"'); \
+            for (const char *_c = (str); *_c; _c++) { \
+                if (*_c == '"') g_string_append_c(match_expr, '"'); \
+                g_string_append_c(match_expr, *_c); \
+            } \
+            g_string_append_c(match_expr, '"'); \
+            if ((prefix) && !req->match_whole_word) \
+                g_string_append_c(match_expr, '*'); \
+        } while (0)
+
+        for (guint i = 0; i < q->phrases->len; i++) {
+            const char *p = (const char *)g_ptr_array_index(q->phrases, i);
+            if (!first) g_string_append(match_expr, " AND ");
+            first = FALSE;
+            APPEND_TERM(p, FALSE);
+            need_fts_join = TRUE;
         }
-        g_string_append_c(match_expr, ')');
-        need_fts_join = TRUE;
-    }
-    #undef APPEND_TERM
+        for (guint i = 0; i < q->pos_terms->len; i++) {
+            const char *s = (const char *)g_ptr_array_index(q->pos_terms, i);
+            if (!first) g_string_append(match_expr, " AND ");
+            first = FALSE;
+            APPEND_TERM(s, TRUE);
+            need_fts_join = TRUE;
+        }
+        if (q->or_terms->len > 0) {
+            if (!first) g_string_append(match_expr, " AND ");
+            first = FALSE;
+            g_string_append_c(match_expr, '(');
+            for (guint i = 0; i < q->or_terms->len; i++) {
+                const char *s = (const char *)g_ptr_array_index(q->or_terms, i);
+                if (i > 0) g_string_append(match_expr, " OR ");
+                APPEND_TERM(s, TRUE);
+            }
+            g_string_append_c(match_expr, ')');
+            need_fts_join = TRUE;
+        }
+        #undef APPEND_TERM
 
-    if (need_fts_join) {
-        g_string_append(sql, "JOIN files_fts ON files_fts.rowid = f.id ");
+        if (need_fts_join)
+            g_string_append(sql, "JOIN files_fts ON files_fts.rowid = f.id ");
     }
+
     g_string_append(sql, "WHERE 1=1");
 
-    if (need_fts_join) {
-        /* Bind MATCH expr — FTS5 supports ? placeholder for the whole
-         * match string. */
+    if (req->match_case) {
+        /* Strategy A: GLOB (case-sensitive) — add after WHERE 1=1 */
+        for (guint i = 0; i < q->phrases->len; i++) {
+            const char *p = (const char *)g_ptr_array_index(q->phrases, i);
+            g_string_append(sql, " AND f.name GLOB ?");
+            g_ptr_array_add(q->params, g_strdup_printf("*%s*", p));
+        }
+        for (guint i = 0; i < q->pos_terms->len; i++) {
+            const char *s = (const char *)g_ptr_array_index(q->pos_terms, i);
+            g_string_append(sql, " AND f.name GLOB ?");
+            g_ptr_array_add(q->params, g_strdup_printf("*%s*", s));
+        }
+        if (q->or_terms->len > 0) {
+            g_string_append(sql, " AND (");
+            for (guint i = 0; i < q->or_terms->len; i++) {
+                const char *s = (const char *)g_ptr_array_index(q->or_terms, i);
+                if (i > 0) g_string_append(sql, " OR ");
+                g_string_append(sql, "f.name GLOB ?");
+                g_ptr_array_add(q->params, g_strdup_printf("*%s*", s));
+            }
+            g_string_append_c(sql, ')');
+        }
+    } else if (need_fts_join) {
         g_string_append(sql, " AND files_fts MATCH ?");
     }
 

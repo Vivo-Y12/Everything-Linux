@@ -59,6 +59,9 @@ typedef struct {
     SortColumn     sort_col;
     SortDirection  sort_dir;
     int            limit;          /* 0 == unlimited */
+    gboolean       match_case;     /* case-sensitive search */
+    gboolean       match_whole_word; /* match whole words only */
+    gboolean       match_path;     /* search in path as well as name */
 } SearchRequest;
 
 SearchRequest *search_request_new(const char *query);
